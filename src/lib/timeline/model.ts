@@ -79,7 +79,17 @@ export function makeItem(input: TimelineItemInput): TimelineItemResult {
 }
 
 export function generateTicks(start: Date, end: Date, scale: TickScale): readonly TimelineTick[] {
-  const stepMs = HOURS_BY_SCALE[scale] * HOUR_MS
+  return generateHourTicks(start, end, HOURS_BY_SCALE[scale])
+}
+
+export const NICE_TICK_HOURS = [1, 2, 3, 6, 12, 24] as const
+
+/**
+ * Generates clock-aligned ticks at an arbitrary whole-hour interval.
+ * Ticks always land on real clock boundaries relative to the start-of-day.
+ */
+export function generateHourTicks(start: Date, end: Date, intervalHours: number): readonly TimelineTick[] {
+  const stepMs = Math.max(1, Math.round(intervalHours)) * HOUR_MS
   const ticks: TimelineTick[] = []
   const dayStart = startOfDay(start).getTime()
   const firstTick = dayStart + Math.ceil((start.getTime() - dayStart) / stepMs) * stepMs
@@ -90,6 +100,20 @@ export function generateTicks(start: Date, end: Date, scale: TickScale): readonl
   }
 
   return ticks
+}
+
+/**
+ * Picks the smallest "nice" hour interval whose on-screen width is at least
+ * `minLabelPx`, so labels stay readable. Prefers 1-hour ticks and only widens
+ * (2h, 3h, 6h, ...) when the zoom level makes denser ticks overlap.
+ */
+export function niceTickHours(rangeHours: number, trackWidthPx: number, minLabelPx = 64): number {
+  if (rangeHours <= 0 || trackWidthPx <= 0) return 1
+  const pxPerHour = trackWidthPx / rangeHours
+  for (const hours of NICE_TICK_HOURS) {
+    if (hours * pxPerHour >= minLabelPx) return hours
+  }
+  return NICE_TICK_HOURS[NICE_TICK_HOURS.length - 1]
 }
 
 export function zoomIn(scale: TickScale): TickScale {

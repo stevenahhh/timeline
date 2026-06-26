@@ -260,3 +260,91 @@ function handleWheel(event: WheelEvent): void {
 - 동작을 의도적으로 바꿀 땐 **테스트도 그 의도로 갱신**하되, 통과를 위해 약화/삭제하지 않는다.
 - 순수 시간 로직은 DOM과 분리해 단위 테스트로 고정한다.
 - 디자인은 토큰화하고, 마케팅 명세라도 "도구"에 맞게 언어만 차용한다.
+
+---
+
+# Part II — 2차 이터레이션 (배포 이후 기능 고도화)
+
+깃 배포(`stevenahhh/timeline`) 이후 들어온 후속 요구를 같은 방법론(문제→근본원인→해결, 테스트=계약)으로 처리한 기록.
+
+## 13. 줌 모델 전면 재설계: 라벨만 바뀌던 줌 → 실제 간트 크기 변화
+
+**문제(요구):** "Ctrl+휠로 실제 간트 형태의 크기를 줄여/키워. 단위는 1시간이 기본이되, 좁아지면 2h·3h 등 동적으로."
+
+**기존 한계:** `scale: 6h|3h|1h` 이산 상태가 **틱 라벨 밀도만** 바꿀 뿐, 보이는 시간 범위(viewStart~viewEnd)는 24h 고정이라 바 크기가 안 변했음.
+
+**해결 — 범위 기반(연속) 줌:**
+- `scale` 상태 제거. **`viewEnd - viewStart`(범위)가 곧 줌 레벨**. 줌인=범위 축소(바 커짐), 줌아웃=범위 확대(바 작아짐).
+- `zoomBy(factor, anchorClientX)` 추가: **커서 위치(시간)를 고정점으로** 범위를 스케일(포인터 앵커 줌). `Ctrl+휠`은 `Math.exp(deltaY*0.0015)` 배율로 부드럽게.
+- 클램프: 최소 2h, 최대 96h.
+- **동적 틱**(`model.ts`에 순수 함수 추가):
+  - `niceTickHours(rangeHours, trackWidthPx, minLabelPx=64)` — `[1,2,3,6,12,24]` 중 라벨이 64px 이상 확보되는 **가장 조밀한** 간격을 선택. 줌인하면 1h, 좁아지면 2h→3h→6h…
+  - `generateHourTicks(start, end, intervalHours)` — 임의 시 간격으로 시계 정렬 틱 생성. 기존 `generateTicks(scale)`는 이걸 위임하도록 리팩터(기존 단위 테스트 유지).
+  - 단위 테스트 추가: `niceTickHours`(24h/1200px→2h, 12h→1h, 96h→6h, 0 입력 방어), `generateHourTicks`(2h 간격 라벨).
+- `scale-label`는 `tickHours` 기반(`"1 hour"`/`"N hours"`)으로 표시.
+
+**테스트 갱신(의도 인코딩):** 이산 스케일을 검증하던 `ctrl+wheel ... one-hour scale`/`plain wheel zooms`/`ctrl wheel ... 3 hours` 3개를 새 모델로 재작성. 특히 줌 검증은 라벨 대신 **바의 실제 폭 증가**(`focus.boundingBox().width`)로 바꿔 사용자 의도("간트 크기 변화")를 직접 측정.
+
+## 14. 휠 동작 재설계 + 헤더 sticky
+
+**문제:** 처음엔 "휠=가로 스크롤"을 원했지만, 곧 "아이템이 많아지면 세로 스크롤도 필요"를 인지.
+
+**해결 — 적응형 휠(`handleWheel`):**
+- `Ctrl/⌘+휠` → 줌.
+- 가로 의도(`Shift+휠` 또는 `|deltaX|>|deltaY|` 트랙패드) → 가로 패닝(`preventDefault`).
+- 세로 휠 → **행이 넘치면 네이티브 세로 스크롤(preventDefault 안 함)**, 안 넘치면 가로 패닝으로 재활용.
+- `.timeline`을 `overflow-y:auto`로, `.date-axis`/`.axis`를 **`position:sticky`**로 고정. 한 스크롤 컨테이너 안에 헤더+트랙이 같이 있어 `clientWidth`(스크롤바 제외)를 공유 → **틱과 바의 정렬 불일치 없음**.
+
+## 15. 상단 정리 + Now
+
+- scale `±` 버튼 제거(줌은 Ctrl+휠로 일원화), `scale-pill`은 읽기 전용 표시로 유지(테스트가 `scale-label` 참조).
+- `Today`(그날 0시로 점프) → **`Now`**(현재 시각을 화면 **중앙**에 두도록 `jumpToNow`, 현재 범위 유지).
+
+## 16. 사이드바 + 달력 히트맵
+
+**요구:** Add item 옆 버튼으로 열고 닫는, 타임라인과 같은 디자인의 **리사이즈 가능한** 사이드바. 안에는 지난 아이템을 빨리 찾는 **달력**(날짜 원형 배경을, 그 달 기준 아이템 수에 비례해 진하게; 클릭 시 그 날짜로 이동).
+
+**해결:**
+- 레이아웃: `topbar` 아래를 `.workspace`(flex row)로 묶어 `timeline`(flex:1) + `aside.sidebar`(가변 폭) 배치. 사이드바는 타임라인과 동일 토큰(`--r-lg`, `--shadow-3`, canvas).
+- 토글: Add item 옆 아이콘 버튼(`panel-toggle`) → `sidebarOpen`. `transition:slide(axis x)`로 열림/닫힘.
+- 리사이즈: 좌측 엣지 핸들 `mousedown`→문서 리스너로 `sidebarWidth` 갱신(240~560px 클램프). 컴포넌트 파괴 시 리스너 정리(onDestroy).
+- **`TimelineCalendar.svelte`**(신규): 6주×7일 그리드, 각 셀은 그 날과 겹치는 아이템 수 집계. **그 달 내 최대값으로 정규화**해 `intensity = 0.18 + 0.82*(count/max)` 알파의 보라색 원(`rgba(109,74,255,intensity)`). 오늘/선택일 강조, 월 이동, 날짜 클릭 → `jumpToDate`.
+- 부가: 선택일 아이템 목록(색 점+제목+시각), 클릭 시 편집.
+
+## 17. 기본 36시간 + now-line 가시성/추종 (테스트 결정성과의 균형)
+
+**요구:** 기본 스케일 ~36h, 열면 now-line이 보이고 시간 따라 추종.
+
+**핵심 판단(왜 "now 중앙 고정"이 아니라 "[자정, +36h]"인가):**
+뷰를 매번 "현재 시각 중앙"으로 열면 실행 시각에 따라 고정 시드 아이템(예: 18–21시 long)이 화면 밖으로 나가 **E2E가 시간대 의존으로 불안정**해짐. 반면 시드는 라벨 단언(`"12:00"` 등) 때문에 **고정 시계시각**이어야 함. 두 제약을 동시에 만족하는 유일 해는 **뷰를 자정 기준 36h(`[startOfDay, +36h]`)** 로 두는 것 — 0~24시 아이템이 항상 0~36h 안에 들어오고, now(0~24시)도 항상 보임. 결정적이며 now-line도 보장 표시.
+
+- `defaultRangeMs = 36*hourMs`. now-line은 `TimelineNowLine`이 주기적으로 위치 갱신(추종). `Now` 버튼은 중앙 정렬.
+
+**이 변경이 깬 것과 해결:**
+- **중복 틱 testid:** 범위>24h면 `tick-12:00`이 12시/36시 두 번 → strict-mode 충돌. → 해당 테스트들에 `.first()` 부여.
+- **드래그 환산 상수:** `width*(6/24)` → `/36` (뷰 폭 변경 반영).
+- **빈 트랙 클릭 테스트:** 중앙(=18시)엔 long 아이템이 있어 add가 안 됨 → 아이템 없는 우측 빈 영역(34/36→다음날 10시) 클릭으로 변경.
+- **포인터 앵커 줌:** 중앙이 18시라 줌인 후 11시가 화면 밖 → 검증 틱을 18시 부근 홀수시(`tick-17:00`)로 교체.
+
+## 18. 좁은 바에서 제목이 사라진 버그 (time-range 레이아웃 squeeze)
+
+**증상:** 36h로 바뀌자 `editing keeps hierarchy` 테스트에서 편집된 child 제목이 **hidden**. 단, `item-title-child`는 제자리 편집됨(새 아이템 아님)=로직은 정상.
+
+**근본 원인:** 내가 4장에서 추가한 호버용 `.time-range`가 `opacity:0`이어도 **flex 레이아웃 폭을 점유**. 36h에서 child 바 폭이 135px로 좁아지자 `구조아이콘+gap+time-range(≈50px)`가 콘텐츠 폭을 초과 → 제목이 0px로 밀려 `toBeVisible`이 hidden 판정.
+
+**해결:** `.time-range`를 기본 `display:none`으로(레이아웃 미점유), 호버 시에만 `display:inline-block`. 비호버(기본) 상태에서 제목이 전체 폭 확보 → 가시. 교훈: **투명도로 숨긴 요소도 레이아웃 폭을 먹는다 — 좁은 컨테이너에서는 `display:none`/absolute로 빼라.**
+
+## 19. 성능 최적화
+
+- 틱 렌더의 `computeItemPosition({...items[0], ...})` 핵(아이템 스프레드, 빈 배열 시 위험) 제거 → 순수 `viewLeftPercent(at)` 직접 계산.
+- 트랙 그리드 라인을 틱과 **동일 위치로 동적 렌더**(정적 25% 배경 그라데이션 제거) → 줌/패닝과 항상 정렬.
+- 드래그 중 바에 `will-change: transform`(GPU 합성), 드래그 중 transform 트랜지션 비활성(포인터 지연 0).
+- `overscroll-behavior: contain`으로 스크롤 체이닝 차단.
+
+## 20. 폰트 전체 통일/강제 (Pretendard Variable)
+
+- JetBrains Mono 제거, `--font-mono`를 `var(--font-sans)`로 묶어 **시간/숫자 포함 전체를 Pretendard Variable**로. `body`에 `font-variant-numeric: tabular-nums`로 숫자 정렬, `button/input/select/textarea`에 폰트 강제 상속.
+
+## 21. 2차 이터레이션 검증 결과
+
+모든 게이트 green 유지: `check` 0/0, 단위 **15** passed(`niceTickHours`·`generateHourTicks` 추가), e2e **20** passed, `build` 성공. 사이드바/달력/36h/now-line은 실제 브라우저 스크린샷으로 시각 확인(`docs/images/hero.png`, `sidebar.png`).

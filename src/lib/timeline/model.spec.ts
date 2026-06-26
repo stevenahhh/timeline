@@ -5,9 +5,11 @@ import {
   computeDepths,
   computeItemPosition,
   computeRowSpans,
+  generateHourTicks,
   generateTicks,
   isValidReparentTarget,
   makeItem,
+  niceTickHours,
   snapDateToScale,
   zoomIn,
 } from "./model"
@@ -46,6 +48,35 @@ describe("timeline model", () => {
     expect(zoomIn("6h")).toBe("3h")
     expect(zoomIn("3h")).toBe("1h")
     expect(zoomIn("1h")).toBe("1h")
+  })
+
+  it("picks denser tick intervals as the view zooms in", () => {
+    // 24h across 1200px -> ~50px/hour, too tight for 1h labels -> 2h
+    expect(niceTickHours(24, 1200)).toBe(2)
+    // 12h across 1200px -> 100px/hour -> 1h fits
+    expect(niceTickHours(12, 1200)).toBe(1)
+    // zoomed way out: 96h across 1200px -> 12.5px/hour -> widen to 6h
+    expect(niceTickHours(96, 1200)).toBe(6)
+    // degenerate inputs never crash
+    expect(niceTickHours(0, 1200)).toBe(1)
+    expect(niceTickHours(24, 0)).toBe(1)
+  })
+
+  it("generates clock-aligned ticks at an arbitrary hour interval", () => {
+    const start = new Date(2026, 5, 8, 0, 0, 0)
+    const end = new Date(2026, 5, 8, 12, 0, 0)
+
+    const ticks = generateHourTicks(start, end, 2)
+
+    expect(ticks.map((tick) => tick.label)).toEqual([
+      "00:00",
+      "02:00",
+      "04:00",
+      "06:00",
+      "08:00",
+      "10:00",
+      "12:00",
+    ])
   })
 
   it("snaps dates to the active scale", () => {

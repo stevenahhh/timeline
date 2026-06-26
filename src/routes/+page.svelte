@@ -2,19 +2,18 @@
   import { browser } from "$app/environment"
   import TimelineItemBar from "$lib/timeline/TimelineItemBar.svelte"
   import IconPicker from "$lib/timeline/IconPicker.svelte"
+  import TimelineCalendar from "$lib/timeline/TimelineCalendar.svelte"
   import {
     clampCompletionBoundary,
     computeDepths,
     computeItemPosition,
     computeRowSpans,
-    generateTicks,
+    generateHourTicks,
     isValidReparentTarget,
     makeItem,
+    niceTickHours,
     snapDateToScale,
     startOfDay,
-    zoomIn,
-    zoomOut,
-    type TickScale,
     type TimelineItem,
     type TimelineItemInput,
   } from "$lib/timeline/model"
@@ -89,21 +88,44 @@
       }
 
   const initialViewStart = startOfDay(new Date())
-  let scale = $state<TickScale>("6h")
+  const minRangeMs = 2 * hourMs
+  const maxRangeMs = 96 * hourMs
+  const defaultRangeMs = 36 * hourMs
   let viewStart = $state<Date>(initialViewStart)
-  let viewEnd = $state<Date>(new Date(initialViewStart.getTime() + dayMs))
+  let viewEnd = $state<Date>(new Date(initialViewStart.getTime() + defaultRangeMs))
   let items = $state<readonly TimelineItem[]>(loadItems())
   let dragState = $state<DragState | null>(null)
   let editor = $state<EditorState | null>(null)
   let popoverRef = $state<HTMLElement | null>(null)
   let trackRef = $state<HTMLElement | null>(null)
+  let surfaceRef = $state<HTMLElement | null>(null)
   let suppressNextOpen = false
 
-  const ticks = $derived(generateTicks(viewStart, viewEnd, scale))
+  const minSidebarWidth = 240
+  const maxSidebarWidth = 560
+  let sidebarOpen = $state(false)
+  let sidebarWidth = $state(320)
+  let sidebarResize = $state<{ readonly startX: number; readonly startWidth: number } | null>(null)
+
+  const rangeHours = $derived((viewEnd.getTime() - viewStart.getTime()) / hourMs)
+  const tickHours = $derived(niceTickHours(rangeHours, trackWidth))
+  const ticks = $derived(generateHourTicks(viewStart, viewEnd, tickHours))
   const rowSpans = $derived(computeRowSpans(items))
   const depths = $derived(computeDepths(items))
   const completedCount = $derived(items.filter((item) => item.completedFrom !== undefined).length)
-  const scaleLabel = $derived(scale === "1h" ? "1 hour" : scale === "3h" ? "3 hours" : "6 hours")
+  const selectedDay = $derived(startOfDay(viewStart))
+  const dayLabel = $derived(
+    new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" }).format(selectedDay),
+  )
+  const dayItems = $derived(
+    items
+      .filter(
+        (item) =>
+          item.startAt.getTime() < selectedDay.getTime() + dayMs && item.endAt.getTime() > selectedDay.getTime(),
+      )
+      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime() || a.order - b.order),
+  )
+  const scaleLabel = $derived(tickHours === 1 ? "1 hour" : `${tickHours} hours`)
   const isPanning = $derived(dragState?.kind === "pan")
   const activeMoveDrag = $derived(dragState?.kind === "move" && dragState.moved ? dragState : undefined)
   const dropTargetId = $derived(findDropTargetId(activeMoveDrag))
@@ -123,6 +145,7 @@
 
   onDestroy(() => {
     removeDocumentListeners()
+    stopSidebarResize()
     if (!browser) return
     document.removeEventListener("pointerdown", handleDocumentPointerDown, true)
     window.removeEventListener("storage", handleStorageEvent)
@@ -227,30 +250,87 @@
     if (event.ctrlKey || event.metaKey) {
       if (event.deltaY === 0) return
       event.preventDefault()
-      scale = event.deltaY < 0 ? zoomIn(scale) : zoomOut(scale)
+      zoomBy(Math.exp(event.deltaY * 0.0015), event.clientX)
       return
     }
 
-    const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-    if (delta === 0) return
+    const horizontalIntent = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)
+    if (horizontalIntent) {
+      const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      if (delta === 0) return
+      event.preventDefault()
+      panByPixels(delta)
+      return
+    }
+
+    // Vertical wheel: let the surface scroll its rows natively when they overflow;
+    // otherwise repurpose the vertical wheel as a horizontal time pan.
+    const surface = surfaceRef
+    if (surface !== null && surface.scrollHeight > surface.clientHeight) return
+    if (event.deltaY === 0) return
     event.preventDefault()
-    const panMs = pixelsToMilliseconds(delta)
+    panByPixels(event.deltaY)
+  }
+
+  function panByPixels(deltaPixels: number): void {
+    const panMs = pixelsToMilliseconds(deltaPixels)
     viewStart = new Date(viewStart.getTime() + panMs)
     viewEnd = new Date(viewEnd.getTime() + panMs)
   }
 
-  function zoomTighter(): void {
-    scale = zoomIn(scale)
+  function zoomBy(factor: number, anchorClientX?: number): void {
+    const rangeMs = viewEnd.getTime() - viewStart.getTime()
+    const nextRange = Math.max(minRangeMs, Math.min(maxRangeMs, rangeMs * factor))
+    if (nextRange === rangeMs) return
+    const anchorMs =
+      anchorClientX === undefined ? viewStart.getTime() + rangeMs / 2 : dateAtClientX(anchorClientX).getTime()
+    const ratio = (anchorMs - viewStart.getTime()) / rangeMs
+    const nextStart = anchorMs - ratio * nextRange
+    viewStart = new Date(nextStart)
+    viewEnd = new Date(nextStart + nextRange)
   }
 
-  function zoomWider(): void {
-    scale = zoomOut(scale)
+  function jumpToNow(): void {
+    const now = Date.now()
+    const rangeMs = viewEnd.getTime() - viewStart.getTime()
+    viewStart = new Date(now - rangeMs / 2)
+    viewEnd = new Date(now + rangeMs / 2)
   }
 
-  function jumpToToday(): void {
-    const today = startOfDay(new Date())
-    viewStart = today
-    viewEnd = new Date(today.getTime() + dayMs)
+  function jumpToDate(date: Date): void {
+    const start = startOfDay(date)
+    viewStart = start
+    viewEnd = new Date(start.getTime() + dayMs)
+  }
+
+  function toggleSidebar(): void {
+    sidebarOpen = !sidebarOpen
+  }
+
+  function clampSidebarWidth(value: number): number {
+    return Math.max(minSidebarWidth, Math.min(maxSidebarWidth, value))
+  }
+
+  function startSidebarResize(event: MouseEvent): void {
+    if (event.button !== 0) return
+    event.preventDefault()
+    sidebarResize = { startX: event.clientX, startWidth: sidebarWidth }
+    if (!browser) return
+    window.addEventListener("mousemove", onSidebarResizeMove)
+    window.addEventListener("mouseup", stopSidebarResize)
+  }
+
+  function onSidebarResizeMove(event: MouseEvent): void {
+    if (sidebarResize === null) return
+    // dragging the handle leftwards (negative delta) widens the sidebar
+    sidebarWidth = clampSidebarWidth(sidebarResize.startWidth + (sidebarResize.startX - event.clientX))
+  }
+
+  function stopSidebarResize(): void {
+    sidebarResize = null
+    if (!browser) return
+    window.removeEventListener("mousemove", onSidebarResizeMove)
+    window.removeEventListener("mouseup", stopSidebarResize)
   }
 
   function startMove(event: MouseEvent, target: TimelineItem): void {
@@ -621,6 +701,10 @@
     const index = items.findIndex((candidate) => candidate.id === item.id)
     return index * 48 + 66
   }
+
+  function viewLeftPercent(at: Date): number {
+    return ((at.getTime() - viewStart.getTime()) / (viewEnd.getTime() - viewStart.getTime())) * 100
+  }
 </script>
 
 <svelte:head>
@@ -641,26 +725,38 @@
         <span class="stat-label">done</span>
       </div>
 
-      <div class="zoom-group" role="group" aria-label="Zoom">
-        <button type="button" class="icon-btn" aria-label="Zoom out" onclick={zoomWider}>−</button>
-        <span class="scale-pill" aria-live="polite">Scale <span data-testid="scale-label">{scaleLabel}</span></span>
-        <button type="button" class="icon-btn" aria-label="Zoom in" onclick={zoomTighter}>+</button>
-      </div>
+      <span class="scale-pill" aria-live="polite">Scale <span data-testid="scale-label">{scaleLabel}</span></span>
 
-      <button type="button" class="ghost-btn" onclick={jumpToToday}>Today</button>
+      <button type="button" class="ghost-btn" onclick={jumpToNow}>Now</button>
       <button type="button" class="add-button" title="Add item (N)" onclick={() => openEditor("add")}>+ Add item</button>
+      <button
+        type="button"
+        class="panel-toggle"
+        class:active={sidebarOpen}
+        aria-label="Toggle sidebar"
+        aria-pressed={sidebarOpen}
+        title="Toggle sidebar"
+        onclick={toggleSidebar}
+      >
+        <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+          <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <line x1="12.5" y1="3.5" x2="12.5" y2="16.5" stroke="currentColor" stroke-width="1.6" />
+        </svg>
+      </button>
     </div>
   </header>
 
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-  <section
-    class="timeline"
+  <div class="workspace">
+    <section
+      class="timeline"
     class:panning={isPanning}
     role="application"
     tabindex="0"
     aria-label="Timeline workspace"
     data-testid="timeline-surface"
     data-drop-state={dropState}
+    bind:this={surfaceRef}
     onwheel={handleWheel}
     onmousedown={startPan}
     onclick={handleSurfaceClick}
@@ -675,12 +771,8 @@
     </div>
 
     <div class="axis">
-      {#each ticks as tick}
-        <div
-          class="tick"
-          data-testid={`tick-${tick.label}`}
-          style={`left: ${computeItemPosition({ ...items[0], startAt: tick.at, endAt: new Date(tick.at.getTime() + hourMs) }, viewStart, viewEnd).leftPercent}%`}
-        >
+      {#each ticks as tick (tick.at.getTime())}
+        <div class="tick" data-testid={`tick-${tick.label}`} style={`left: ${viewLeftPercent(tick.at)}%`}>
           <span>{tick.label}</span>
         </div>
       {/each}
@@ -693,6 +785,12 @@
       bind:clientHeight={trackHeight}
       style={`min-height: ${Math.max(items.length, 4) * 48 + 90}px`}
     >
+      <div class="grid" aria-hidden="true">
+        {#each ticks as tick (tick.at.getTime())}
+          <span class="grid-line" style={`left: ${viewLeftPercent(tick.at)}%`}></span>
+        {/each}
+      </div>
+
       <TimelineNowLine {viewStart} {viewEnd} />
 
       {#each items as item, rowIndex (item.id)}
@@ -788,6 +886,51 @@
       {/if}
     </div>
   </section>
+
+    {#if sidebarOpen}
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
+      <aside class="sidebar" class:resizing={sidebarResize !== null} style={`width: ${sidebarWidth}px`}>
+        <div
+          class="sidebar-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onmousedown={startSidebarResize}
+        ><span class="sidebar-grip"></span></div>
+
+        <div class="sidebar-body">
+          <div class="sidebar-head">
+            <strong>Calendar</strong>
+            <button type="button" class="sidebar-close" aria-label="Close sidebar" onclick={toggleSidebar}>×</button>
+          </div>
+
+          <TimelineCalendar items={items} selected={selectedDay} onSelect={jumpToDate} />
+
+          <div class="day-panel">
+            <div class="day-panel-head">
+              <span class="day-panel-title">{dayLabel}</span>
+              <span class="day-panel-count">{dayItems.length}</span>
+            </div>
+            {#if dayItems.length === 0}
+              <p class="day-empty">No items on this day.</p>
+            {:else}
+              <ul class="day-list">
+                {#each dayItems as item (item.id)}
+                  <li>
+                    <button type="button" class="day-item" onclick={() => openEditor("edit", item.id)}>
+                      <span class="day-dot" style={`background: ${item.color}`}></span>
+                      <span class="day-item-title">{item.title}</span>
+                      <span class="day-item-time">{formatClockLabel(item.startAt)}</span>
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        </div>
+      </aside>
+    {/if}
+  </div>
 </main>
 
 <style>
@@ -857,36 +1000,14 @@
     color: var(--mute);
   }
 
-  .zoom-group {
+  .scale-pill {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 3px;
+    gap: 4px;
+    padding: 6px 12px;
     border-radius: var(--r-pill);
     background: var(--canvas);
     box-shadow: var(--shadow-2);
-  }
-
-  .icon-btn {
-    width: 26px;
-    height: 26px;
-    border: 0;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--body);
-    font-size: 17px;
-    line-height: 1;
-    cursor: pointer;
-    transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
-  }
-
-  .icon-btn:hover {
-    background: var(--canvas-soft-2);
-    color: var(--ink);
-  }
-
-  .scale-pill {
-    padding: 0 8px;
     font-size: 12px;
     color: var(--mute);
     white-space: nowrap;
@@ -936,10 +1057,214 @@
     transform: translateY(0);
   }
 
+  .panel-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: var(--canvas);
+    color: var(--body);
+    box-shadow: var(--shadow-2);
+    cursor: pointer;
+    transition: color var(--dur-1) var(--ease-out), box-shadow var(--dur-2) var(--ease-out),
+      background var(--dur-1) var(--ease-out);
+  }
+
+  .panel-toggle:hover {
+    color: var(--ink);
+    box-shadow: var(--shadow-3);
+  }
+
+  .panel-toggle.active {
+    background: var(--ink);
+    color: #fff;
+  }
+
+  /* ---- Workspace (timeline + sidebar) ---- */
+  .workspace {
+    display: flex;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex;
+    border-radius: var(--r-lg);
+    background: var(--canvas);
+    box-shadow: var(--shadow-3);
+    overflow: hidden;
+  }
+
+  .sidebar.resizing {
+    user-select: none;
+  }
+
+  .sidebar-resize {
+    flex: 0 0 auto;
+    width: 12px;
+    margin-left: -4px;
+    cursor: ew-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar-grip {
+    width: 3px;
+    height: 34px;
+    border-radius: 999px;
+    background: var(--hairline-strong);
+    opacity: 0.5;
+    transition: opacity var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+  }
+
+  .sidebar-resize:hover .sidebar-grip,
+  .sidebar.resizing .sidebar-grip {
+    opacity: 1;
+    background: var(--link);
+  }
+
+  .sidebar-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 16px 16px 6px;
+    overflow-y: auto;
+  }
+
+  .sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sidebar-head strong {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .sidebar-close {
+    border: 0;
+    background: transparent;
+    color: var(--mute);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+  }
+
+  .sidebar-close:hover {
+    background: var(--canvas-soft-2);
+    color: var(--ink);
+  }
+
+  /* ---- Selected-day panel ---- */
+  .day-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 1px solid var(--hairline);
+    padding-top: 12px;
+  }
+
+  .day-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .day-panel-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .day-panel-count {
+    min-width: 20px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--canvas-soft-2);
+    color: var(--body);
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .day-empty {
+    margin: 2px 0;
+    font-size: 12px;
+    color: var(--mute);
+  }
+
+  .day-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .day-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    border-radius: var(--r-sm);
+    padding: 7px 8px;
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--dur-1) var(--ease-out);
+  }
+
+  .day-item:hover {
+    background: var(--canvas-soft-2);
+  }
+
+  .day-dot {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  }
+
+  .day-item-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  .day-item-time {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--mute);
+  }
+
   /* ---- Timeline surface ---- */
   .timeline {
     position: relative;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     flex: 1;
     min-height: 0;
     display: flex;
@@ -955,7 +1280,9 @@
   }
 
   .date-axis {
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 6;
     height: 26px;
     background: var(--canvas-soft);
     border-bottom: 1px solid var(--hairline);
@@ -979,7 +1306,9 @@
   }
 
   .axis {
-    position: relative;
+    position: sticky;
+    top: 26px;
+    z-index: 6;
     width: 100%;
     height: 40px;
     background: var(--canvas-soft);
@@ -1005,13 +1334,21 @@
     position: relative;
     width: 100%;
     flex: 1;
-    background-image: repeating-linear-gradient(
-      to right,
-      transparent,
-      transparent calc(100% / 4 - 1px),
-      var(--canvas-soft) calc(100% / 4 - 1px),
-      var(--canvas-soft) calc(100% / 4)
-    );
+  }
+
+  .grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .grid-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 1px solid var(--canvas-soft);
   }
 
   /* ---- Empty state ---- */

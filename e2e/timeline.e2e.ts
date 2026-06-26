@@ -6,19 +6,20 @@ test.beforeEach(async ({ page }) => {
   await page.reload()
 })
 
-test("first screen is a timeline with default 6-hour ticks", async ({ page }) => {
+test("first screen is a timeline with clock ticks", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible()
   await expect(page.getByText("Welcome to SvelteKit")).toHaveCount(0)
   await expect(page.getByTestId("tick-00:00").first()).toBeVisible()
-  await expect(page.getByTestId("tick-06:00")).toBeVisible()
-  await expect(page.getByTestId("tick-12:00")).toBeVisible()
-  await expect(page.getByTestId("tick-18:00")).toBeVisible()
+  await expect(page.getByTestId("tick-06:00").first()).toBeVisible()
+  await expect(page.getByTestId("tick-12:00").first()).toBeVisible()
+  await expect(page.getByTestId("tick-18:00").first()).toBeVisible()
   await expect(page.getByTestId("row-label")).toHaveCount(0)
 })
 
-test("ctrl+wheel zoom reaches the one-hour scale and clamps there", async ({ page }) => {
+test("ctrl+wheel zooms in to one-hour ticks and back out", async ({ page }) => {
   const surface = page.getByTestId("timeline-surface")
   await surface.hover()
+
   await page.keyboard.down("Control")
   await page.mouse.wheel(0, -400)
   await page.mouse.wheel(0, -400)
@@ -26,42 +27,57 @@ test("ctrl+wheel zoom reaches the one-hour scale and clamps there", async ({ pag
   await page.keyboard.up("Control")
 
   await expect(page.getByTestId("scale-label")).toHaveText("1 hour")
-  await expect(page.getByTestId("tick-01:00")).toBeVisible()
+  // zoom is anchored at the cursor (surface centre ~ 18:00 in the 36h view), so an
+  // odd hour near the centre only appears when ticks are at the 1-hour interval
+  await expect(page.getByTestId("tick-17:00")).toBeVisible()
 
   await page.keyboard.down("Control")
   await page.mouse.wheel(0, 400)
   await page.mouse.wheel(0, 400)
   await page.mouse.wheel(0, 400)
+  await page.mouse.wheel(0, 400)
   await page.keyboard.up("Control")
 
-  await expect(page.getByTestId("scale-label")).toHaveText("6 hours")
+  await expect(page.getByTestId("scale-label")).not.toHaveText("1 hour")
 })
 
 test("plain wheel pans the timeline horizontally without zooming", async ({ page }) => {
   const surface = page.getByTestId("timeline-surface")
   await surface.hover()
-  const before = await page.getByTestId("tick-12:00").boundingBox()
+  const labelBefore = await page.getByTestId("scale-label").textContent()
+  const before = await page.getByTestId("tick-12:00").first().boundingBox()
   expect(before).not.toBeNull()
   if (before === null) return
 
   await page.mouse.wheel(0, 240)
   await page.waitForTimeout(80)
 
-  await expect(page.getByTestId("scale-label")).toHaveText("6 hours")
-  const after = await page.getByTestId("tick-12:00").boundingBox()
+  // panning must not change the zoom level
+  expect(await page.getByTestId("scale-label").textContent()).toBe(labelBefore)
+  const after = await page.getByTestId("tick-12:00").first().boundingBox()
   expect(after).not.toBeNull()
   if (after === null) return
   expect(Math.abs(after.x - before.x)).toBeGreaterThan(20)
 })
 
-test("ctrl wheel still zooms the scale", async ({ page }) => {
+test("ctrl+wheel resizes the gantt (zoom)", async ({ page }) => {
+  const focus = page.getByTestId("timeline-item-focus")
+  const before = await focus.boundingBox()
+  expect(before).not.toBeNull()
+  if (before === null) return
+
   const surface = page.getByTestId("timeline-surface")
   await surface.hover()
   await page.keyboard.down("Control")
   await page.mouse.wheel(0, -400)
   await page.keyboard.up("Control")
+  await page.waitForTimeout(80)
 
-  await expect(page.getByTestId("scale-label")).toHaveText("3 hours")
+  // zooming in must enlarge the on-screen size of the bars
+  const after = await focus.boundingBox()
+  expect(after).not.toBeNull()
+  if (after === null) return
+  expect(after.width).toBeGreaterThan(before.width + 10)
 })
 
 test("dragging and resizing preview snapped positions", async ({ page }) => {
@@ -71,7 +87,7 @@ test("dragging and resizing preview snapped positions", async ({ page }) => {
   expect(surfaceBox).not.toBeNull()
   expect(box).not.toBeNull()
   if (surfaceBox === null || box === null) return
-  const sixHours = surfaceBox.width * (6 / 24)
+  const sixHours = surfaceBox.width * (6 / 36)
 
   await page.mouse.move(box.x + 40, box.y + 20)
   await page.mouse.down()
@@ -204,11 +220,13 @@ test("empty track click opens an add editor at the clicked hour", async ({ page 
   expect(box).not.toBeNull()
   if (box === null) return
 
-  await page.mouse.click(box.x + box.width / 2, box.y + 360)
+  // default view spans 36h from midnight; click empty space past all seed items
+  // 34/36 of the width maps to 34:00 -> next-day 10:00
+  await page.mouse.click(box.x + box.width * (34 / 36), box.y + 200)
 
   await expect(page.getByTestId("editor-popover")).toBeVisible()
-  await expect(page.getByTestId("editor-start")).toHaveValue("12")
-  await expect(page.getByTestId("editor-end")).toHaveValue("13")
+  await expect(page.getByTestId("editor-start")).toHaveValue("10")
+  await expect(page.getByTestId("editor-end")).toHaveValue("11")
 })
 
 test("item drag uses one-hour snap even at the default six-hour scale", async ({ page }) => {
@@ -218,7 +236,7 @@ test("item drag uses one-hour snap even at the default six-hour scale", async ({
   expect(surfaceBox).not.toBeNull()
   expect(box).not.toBeNull()
   if (surfaceBox === null || box === null) return
-  const threeHours = surfaceBox.width * (3 / 24)
+  const threeHours = surfaceBox.width * (3 / 36)
 
   await page.mouse.move(box.x + 40, box.y + 20)
   await page.mouse.down()

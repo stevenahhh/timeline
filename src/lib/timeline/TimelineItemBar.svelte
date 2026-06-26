@@ -229,6 +229,7 @@
     z-index: 30;
     pointer-events: none;
     cursor: grabbing;
+    will-change: transform;
     filter: saturate(1.14) brightness(1.05);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.28),
@@ -283,16 +284,12 @@
     font-size: 10px;
     font-weight: 500;
     letter-spacing: 0;
-    opacity: 0;
-    transform: translateX(4px);
-    transition:
-      opacity var(--dur-2) var(--ease-out),
-      transform var(--dur-2) var(--ease-out);
+    display: none;
   }
 
   .item:hover .time-range {
+    display: inline-block;
     opacity: 0.72;
-    transform: translateX(0);
   }
 
   .completion {

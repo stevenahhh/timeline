@@ -10,17 +10,20 @@ Built with SvelteKit 2 + Svelte 5 (runes), TypeScript, and a Vercel-inspired des
 
 ## Features
 
-- **Time-boxed bars** — every task is a duration bar with a start and end time, positioned on a real clock axis (00:00 / 06:00 / 12:00 / 18:00 by default).
-- **Wheel / trackpad scrolling** — scroll horizontally to pan through time. `Ctrl/⌘ + wheel` zooms between 6h, 3h, and 1h tick scales.
-- **Drag, resize, snap** — drag a bar to move it, drag its right edge to resize. Everything snaps to one-hour boundaries even at the six-hour scale.
+- **Time-boxed bars** — every task is a duration bar with a start and end time, positioned on a real clock axis. The default view spans ~36 hours so you always see today plus context.
+- **Continuous zoom that resizes the gantt** — `Ctrl/⌘ + wheel` zooms in/out around the cursor, growing or shrinking the bars. Tick density adapts automatically (1h when zoomed in, widening to 2h / 3h / 6h / 12h as you zoom out) so labels never overlap.
+- **Smart scrolling** — vertical wheel scrolls the rows when they overflow; otherwise it pans through time. `Shift + wheel` and trackpad swipes pan horizontally. The clock header stays pinned while rows scroll.
+- **Live "now" line** — a red indicator with a time flag marks the current moment, is visible on load, and follows the clock. The **Now** button re-centres the view on the present.
+- **Drag, resize, snap** — drag a bar to move it, drag its right edge to resize. Everything snaps to one-hour boundaries at any zoom level.
 - **Unlimited nesting** — drop one task onto another to make it a child. **Parent bars grow vertically to contain their descendants**, forming clear visual groups. Self-drops and descendant-drops are rejected.
+- **Resizable calendar sidebar** — a toggleable side panel (next to *Add item*) with a month **heat-map calendar**: each day is a circle whose fill deepens with how busy it is (scaled to the busiest day that month). Click a day to jump there; the panel also lists that day's items. Drag its edge to resize.
 - **Partial completion** — mark a task complete "from now"; the segment from the current time to the task's end fills with a green progress overlay, clamped to the task's range.
 - **Shared add / edit bubble** — one popover handles both creating and editing, with a title field, emoji icon picker, color swatches + custom color, and start/end hours.
-- **Live "now" line** — a red indicator with a time flag tracks the current moment across the track.
 - **Keyboard friendly** — `N` to add, `Enter` to save, `Esc` to close. Single-popover discipline with outside-click-to-close.
 - **Premium, animated UI** — stacked-shadow elevation, hover micro-interactions, spring pop on menus, smooth drag-follow — all gated behind `prefers-reduced-motion`.
-- **Korean-first typography** — UI text renders in **Pretendard Variable**; numeric/clock labels use JetBrains Mono.
+- **Pretendard everywhere** — the entire UI, including numeric and clock labels, is unified on **Pretendard Variable** with tabular figures.
 
+![Calendar sidebar](docs/images/sidebar.png)
 ![Editor popover](docs/images/editor.png)
 
 ---
@@ -78,9 +81,13 @@ bun run test         # unit + e2e
 | Nest a task | Drag it onto another task's header row |
 | Un-nest a task | Drag it onto empty track space |
 | Complete from now | Click the check button inside a bar |
-| Pan through time | Scroll the wheel / swipe the trackpad, or drag empty space |
-| Zoom | `Ctrl/⌘ + wheel`, or the `−` / `+` buttons |
-| Jump to today | `Today` button |
+| Pan through time | `Shift + wheel`, trackpad swipe, or drag empty space |
+| Scroll rows | Vertical wheel (when rows overflow) |
+| Zoom in / out | `Ctrl/⌘ + wheel` (resizes the bars, ticks adapt) |
+| Jump to current time | `Now` button |
+| Open / close sidebar | Panel button next to *Add item* |
+| Resize sidebar | Drag the sidebar's left edge |
+| Jump to a date | Click a day in the calendar |
 | Close the editor | `Esc`, the `×`, or click outside |
 
 ![Empty state](docs/images/empty.png)
@@ -92,15 +99,16 @@ bun run test         # unit + e2e
 ```
 src/
 ├─ app.css                       # design tokens (color, type, spacing, shadow, motion) + base
-├─ app.html                      # font links (Pretendard Variable, JetBrains Mono)
+├─ app.html                      # font link (Pretendard Variable)
 ├─ routes/
 │  ├─ +layout.svelte             # imports global CSS
-│  └─ +page.svelte               # the timeline app: state, drag/drop, zoom, persistence, editor
+│  └─ +page.svelte               # the timeline app: state, drag/drop, zoom, scroll, persistence, editor, sidebar
 └─ lib/timeline/
    ├─ model.ts                   # pure timeline domain logic (no DOM)
    ├─ model.spec.ts              # Vitest unit tests for the model
    ├─ TimelineItemBar.svelte     # a single draggable/resizable task bar
    ├─ TimelineNowLine.svelte     # the live current-time indicator
+   ├─ TimelineCalendar.svelte    # month heat-map calendar in the sidebar
    └─ IconPicker.svelte          # emoji icon picker
 ```
 
