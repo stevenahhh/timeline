@@ -91,8 +91,9 @@
   const minRangeMs = 2 * hourMs
   const maxRangeMs = 96 * hourMs
   const defaultRangeMs = 36 * hourMs
-  let viewStart = $state<Date>(initialViewStart)
-  let viewEnd = $state<Date>(new Date(initialViewStart.getTime() + defaultRangeMs))
+  const initialNow = Date.now()
+  let viewStart = $state<Date>(new Date(initialNow - defaultRangeMs / 2))
+  let viewEnd = $state<Date>(new Date(initialNow + defaultRangeMs / 2))
   let items = $state<readonly TimelineItem[]>(loadItems())
   let dragState = $state<DragState | null>(null)
   let editor = $state<EditorState | null>(null)
@@ -232,11 +233,11 @@
       title,
       icon,
       color,
-      startAt: atHour(viewStart, startHour),
-      endAt: atHour(viewStart, endHour),
+      startAt: atHour(initialViewStart, startHour),
+      endAt: atHour(initialViewStart, endHour),
       ...(parentId === undefined ? {} : { parentId }),
       order,
-      ...(completedHour === undefined ? {} : { completedFrom: atHour(viewStart, completedHour) }),
+      ...(completedHour === undefined ? {} : { completedFrom: atHour(initialViewStart, completedHour) }),
     })
     if (result.kind === "valid") return result.item
     throw new Error("Initial timeline item must have a valid duration")

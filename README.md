@@ -10,10 +10,10 @@ Built with SvelteKit 2 + Svelte 5 (runes), TypeScript, and a Vercel-inspired des
 
 ## Features
 
-- **Time-boxed bars** — every task is a duration bar with a start and end time, positioned on a real clock axis. The default view spans ~36 hours so you always see today plus context.
+- **Time-boxed bars** — every task is a duration bar with a start and end time, positioned on a real clock axis. On load the view is **centred on the current moment** and spans ~36 hours, so you always see now plus context on both sides.
 - **Continuous zoom that resizes the gantt** — `Ctrl/⌘ + wheel` zooms in/out around the cursor, growing or shrinking the bars. Tick density adapts automatically (1h when zoomed in, widening to 2h / 3h / 6h / 12h as you zoom out) so labels never overlap.
 - **Smart scrolling** — vertical wheel scrolls the rows when they overflow; otherwise it pans through time. `Shift + wheel` and trackpad swipes pan horizontally. The clock header stays pinned while rows scroll.
-- **Live "now" line** — a red indicator with a time flag marks the current moment, is visible on load, and follows the clock. The **Now** button re-centres the view on the present.
+- **Live "now" line** — a red indicator with a time flag marks the current moment, sits at the centre on load, and updates every second. The **Now** button re-centres the view on the present.
 - **Drag, resize, snap** — drag a bar to move it, drag its right edge to resize. Everything snaps to one-hour boundaries at any zoom level.
 - **Unlimited nesting** — drop one task onto another to make it a child. **Parent bars grow vertically to contain their descendants**, forming clear visual groups. Self-drops and descendant-drops are rejected.
 - **Resizable calendar sidebar** — a toggleable side panel (next to *Add item*) with a month **heat-map calendar**: each day is a circle whose fill deepens with how busy it is (scaled to the busiest day that month). Click a day to jump there; the panel also lists that day's items. Drag its edge to resize.

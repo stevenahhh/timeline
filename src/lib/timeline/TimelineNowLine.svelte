@@ -10,7 +10,7 @@
   let now = $state(new Date())
 
   onMount(() => {
-    const id = setInterval(() => (now = new Date()), 30_000)
+    const id = setInterval(() => (now = new Date()), 1_000)
     return () => clearInterval(id)
   })
 
@@ -36,14 +36,14 @@
     top: 0;
     bottom: 0;
     width: 0;
-    z-index: 4;
+    z-index: 5;
     border-left: 1.5px solid var(--danger);
     pointer-events: none;
   }
 
   .now-dot {
     position: absolute;
-    top: -3px;
+    top: 2px;
     left: -4px;
     width: 7px;
     height: 7px;
@@ -54,7 +54,7 @@
 
   .now-flag {
     position: absolute;
-    top: -9px;
+    top: 4px;
     left: 6px;
     padding: 1px 6px;
     border-radius: 999px;

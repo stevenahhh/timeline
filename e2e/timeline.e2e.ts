@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test"
 
+// Freeze the clock at local noon so the now-centred default view is deterministic
+// and every seed item (06:00–21:00) stays comfortably inside the 36h window.
+const FIXED_NOW = new Date(2026, 5, 26, 12, 0, 0)
+
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_NOW)
   await page.goto("/")
   await page.evaluate(() => window.localStorage.removeItem("timeline.todo.v1"))
   await page.reload()
@@ -27,9 +32,9 @@ test("ctrl+wheel zooms in to one-hour ticks and back out", async ({ page }) => {
   await page.keyboard.up("Control")
 
   await expect(page.getByTestId("scale-label")).toHaveText("1 hour")
-  // zoom is anchored at the cursor (surface centre ~ 18:00 in the 36h view), so an
-  // odd hour near the centre only appears when ticks are at the 1-hour interval
-  await expect(page.getByTestId("tick-17:00")).toBeVisible()
+  // zoom is anchored at the cursor (surface centre ~ 12:00 with the clock frozen at
+  // noon), so an odd hour near the centre only appears at the 1-hour interval
+  await expect(page.getByTestId("tick-13:00")).toBeVisible()
 
   await page.keyboard.down("Control")
   await page.mouse.wheel(0, 400)
@@ -220,13 +225,13 @@ test("empty track click opens an add editor at the clicked hour", async ({ page 
   expect(box).not.toBeNull()
   if (box === null) return
 
-  // default view spans 36h from midnight; click empty space past all seed items
-  // 34/36 of the width maps to 34:00 -> next-day 10:00
-  await page.mouse.click(box.x + box.width * (34 / 36), box.y + 200)
+  // clock is frozen at noon and the view is centred on now, so the horizontal
+  // centre maps to 12:00; click an empty row well below the seed items
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 60)
 
   await expect(page.getByTestId("editor-popover")).toBeVisible()
-  await expect(page.getByTestId("editor-start")).toHaveValue("10")
-  await expect(page.getByTestId("editor-end")).toHaveValue("11")
+  await expect(page.getByTestId("editor-start")).toHaveValue("12")
+  await expect(page.getByTestId("editor-end")).toHaveValue("13")
 })
 
 test("item drag uses one-hour snap even at the default six-hour scale", async ({ page }) => {
