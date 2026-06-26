@@ -1,0 +1,122 @@
+/* ============================================================
+   Timeline — design tokens (Vercel-inspired, per plans/DESIGN.md)
+   ============================================================ */
+:root {
+  /* Surface ladder */
+  --canvas: #ffffff;
+  --canvas-soft: #fafafa;
+  --canvas-soft-2: #f5f5f5;
+  --ink: #171717;
+  --body: #4d4d4d;
+  --mute: #8a8a8a;
+  --hairline: #ebebeb;
+  --hairline-strong: #d8d8d8;
+
+  /* Brand / accent */
+  --link: #0070f3;
+  --link-deep: #0761d1;
+  --accent: #6d4aff;
+  --success: #1f9d57;
+  --success-soft: #e7f6ee;
+  --danger: #e5484d;
+  --danger-soft: #fdecec;
+
+  /* Brand mesh gradient (hero accent only) */
+  --g-develop-start: #007cf0;
+  --g-develop-end: #00dfd8;
+  --g-preview-start: #7928ca;
+  --g-preview-end: #ff0080;
+  --g-ship-start: #ff4d4d;
+  --g-ship-end: #f9cb28;
+  --brand-gradient: linear-gradient(
+    100deg,
+    var(--g-develop-start),
+    var(--g-develop-end) 28%,
+    var(--g-preview-start) 52%,
+    var(--g-preview-end) 72%,
+    var(--g-ship-start) 100%
+  );
+
+  /* Radii */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* Spacing (4px base) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+
+  /* Stacked elevation */
+  --shadow-1: 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 1px 1px rgba(0, 0, 0, 0.02), 0 2px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-3: 0 2px 4px rgba(0, 0, 0, 0.04), 0 8px 16px -8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 24px -8px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-pop: 0 1px 1px rgba(0, 0, 0, 0.04), 0 10px 20px -6px rgba(0, 0, 0, 0.14),
+    0 24px 40px -12px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+
+  /* Typography */
+  --font-sans: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 260ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 12% -8%, rgba(121, 40, 202, 0.06), transparent 60%),
+    radial-gradient(1100px 560px at 96% -12%, rgba(0, 124, 240, 0.06), transparent 58%),
+    var(--canvas-soft);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+::selection {
+  background: var(--ink);
+  color: #f2f2f2;
+}
+
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
